@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import path from 'path';
 
-dotenv.config({ path: path.resolve(__dirname, '../config/config.env') });
+dotenv.config({path: path.resolve(__dirname, '../config/config.env')});
 
 interface Config {
     NAME: string;
@@ -16,6 +16,7 @@ interface Config {
     AGENDA_DB_PASS: string;
     ENCRYPTION_PRIVATE_KEY: string;
     ENCRYPTION_IV: string;
+    REVIEWERS_COUNT: number;
 }
 
 const getConfig = (): Partial<Config> => {
@@ -32,6 +33,7 @@ const getConfig = (): Partial<Config> => {
         AGENDA_DB_PASS: process.env.AGENDA_DB_PASS,
         ENCRYPTION_PRIVATE_KEY: process.env.ENCRYPTION_PRIVATE_KEY,
         ENCRYPTION_IV: process.env.ENCRYPTION_IV,
+        REVIEWERS_COUNT: process.env.REVIEWERS_COUNT ? Number(process.env.REVIEWERS_COUNT) : 2,
     };
 };
 

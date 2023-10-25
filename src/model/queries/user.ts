@@ -1,11 +1,12 @@
 import { decryptData, encryptData } from '@utils/encryption';
-import { Model, Op } from 'sequelize';
+import { Model, Op, WhereOptions } from 'sequelize';
 
 import { ERRORS, NOTIFICATIONS } from '@src/constants';
 import { deleteLastMessage } from '@src/controller';
 import {
     generateRandomNumber,
     getRandomRecord,
+    getUniqueRandomUsers,
     idKeys,
     isDefined,
     isNotNil,
@@ -17,6 +18,7 @@ import {
 
 import { bot } from '../index';
 import { LicensesModel, TeamsModel, UserGroupsModel, UserModel } from '../models';
+import config from '@src/config';
 
 type UserPayload = Partial<Pick<UserGroups, 'teamId'>> & idKeys & { vacationDate?: Date | null };
 
@@ -157,6 +159,7 @@ export async function getUsersMention({
     ...ids
 }: idKeys & { teamId?: string }) {
     const { userId, chatId } = ids;
+    const reviewersCount = config.REVIEWERS_COUNT;
 
     async function sendMsg(msg: string) {
         return await bot.sendMessage(userId, msg);
@@ -197,26 +200,57 @@ export async function getUsersMention({
             })
             .join(', ');
     }
-
+    const resultingReviewers: User[] = [];
     const firstUser = usersFromSameTeam.length > 0 ? getRandomRecord(usersFromSameTeam) : undefined;
 
-    const secondUser = await getRandomUserFromAnotherTeam(chatId, userTeamInfo.teamId);
-
-    if (!secondUser) {
-        return undefined;
+    if (reviewersCount > 0 && firstUser) {
+        resultingReviewers.push(firstUser);
     }
 
-    if (!firstUser) {
-        const randomUser = await getRandomUserFromAnotherTeam(
+    if (resultingReviewers.length < reviewersCount) {
+        const missingReviewersAmount = reviewersCount - resultingReviewers.length;
+
+        const excludedIds = resultingReviewers
+            .filter((us) => us != null)
+            .map((us) => us.userId)
+            .map((id) => encryptData(id));
+
+        const idExclusionParams =
+            excludedIds.length > 0 ? { userId: { [Op.notIn]: excludedIds } } : undefined;
+
+        const anotherTeamUserModels = await getUsersFromAnotherTeam(
             chatId,
             userTeamInfo.teamId,
-            secondUser.userId
+            idExclusionParams
         );
+        const anotherTeamUsers = anotherTeamUserModels
+            .map((model) => {
+                const user = model.get();
+                return {
+                    ...user,
+                    userId: decryptData(user.userId),
+                    name: decryptData(user.name),
+                };
+            })
+            .filter((user) => user != null);
 
-        return `${randomUser ? `@${randomUser.name}` : ''} @${secondUser.name}`;
+        if (anotherTeamUsers.length <= missingReviewersAmount) {
+            resultingReviewers.concat(anotherTeamUsers);
+        }
+
+        if (anotherTeamUsers.length > missingReviewersAmount) {
+            resultingReviewers.concat(
+                getUniqueRandomUsers(anotherTeamUsers, missingReviewersAmount)
+            );
+        }
     }
 
-    return `@${firstUser.name} @${secondUser.name}`;
+    return resultingReviewers
+        .filter((us) => us != null)
+        .map((user) => {
+            return `@${user.name}`;
+        })
+        .join(', ');
 }
 
 async function addUser({
@@ -375,28 +409,10 @@ export async function getRandomUserFromAnotherTeam(
     teamId: string,
     excludeId?: string
 ) {
-    const extra = excludeId ? { userId: { [Op.ne]: encryptData(excludeId) } } : undefined;
-
     await checkForExpiredVacations();
 
-    const anotherTeamUsers = await UserModel.findAll({
-        include: {
-            model: UserGroupsModel,
-            required: true,
-            where: {
-                chatId: encryptData(`${chatId}`),
-                teamId: {
-                    [Op.ne]: teamId,
-                },
-            },
-        },
-        where: {
-            isOnVacation: {
-                [Op.ne]: true,
-            },
-            ...extra,
-        },
-    });
+    const extraParams = excludeId ? { userId: { [Op.ne]: encryptData(excludeId) } } : undefined;
+    const anotherTeamUsers = await getUsersFromAnotherTeam(chatId, teamId, extraParams);
 
     if (anotherTeamUsers.length === 0) {
         return null;
@@ -413,6 +429,33 @@ export async function getRandomUserFromAnotherTeam(
     }
 
     return getRandomRecord(anotherTeamUsers);
+}
+
+export async function getUsersFromAnotherTeam(
+    chatId: number,
+    teamId: string,
+    extraParams?: WhereOptions<User>
+) {
+    await checkForExpiredVacations();
+
+    return UserModel.findAll({
+        include: {
+            model: UserGroupsModel,
+            required: true,
+            where: {
+                chatId: encryptData(`${chatId}`),
+                teamId: {
+                    [Op.ne]: teamId,
+                },
+            },
+        },
+        where: {
+            isOnVacation: {
+                [Op.ne]: true,
+            },
+            ...extraParams,
+        },
+    });
 }
 
 export async function checkForExpiredVacations() {

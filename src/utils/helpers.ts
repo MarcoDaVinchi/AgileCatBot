@@ -64,6 +64,39 @@ export function getRandomRecord(users: Model<User>[]): User {
     };
 }
 
+export function getRandomUser(users: User[]): User {
+    const randomId = Math.round(Math.random() * (users.length - 1));
+
+    return users[randomId];
+}
+
+export function getUniqueRandomUsers(users: User[], requiredAmount: number): User[] {
+    if (users.length === 0) {
+        return [];
+    }
+
+    if (users.length <= requiredAmount) {
+        return users;
+    }
+
+    const result: User[] = [];
+    const uniqueIds: number[] = [];
+
+    while (result.length < requiredAmount) {
+        if (uniqueIds.length === users.length) {
+            break;
+        }
+
+        const randomId = Math.round(Math.random() * (users.length - 1));
+        if (!uniqueIds.includes(randomId)) {
+            uniqueIds.push(randomId);
+            result.push(users[randomId]);
+        }
+    }
+
+    return result;
+}
+
 export function createChatCommands(botName: string) {
     const data: Record<string, string[]> = {};
 
@@ -146,7 +179,10 @@ export async function sendWithCommandLine({
     messageText,
     keyboard,
     ...ids
-}: idKeys & { keyboard: KeyboardItem[][]; messageText?: string } & WithCommandLine) {
+}: idKeys & {
+    keyboard: KeyboardItem[][];
+    messageText?: string;
+} & WithCommandLine) {
     const { chatId, messageId } = ids;
 
     return fromCommandLine && messageText
@@ -177,7 +213,9 @@ export async function checkForUserStartBot(args: idKeys) {
 export async function handleApiError({
     error,
     ...ids
-}: idKeys & { error: { response: { body: { error_code: number; description: string } } } }) {
+}: idKeys & {
+    error: { response: { body: { error_code: number; description: string } } };
+}) {
     const { userName, chatId } = ids;
 
     const name = isTruthy(userName) ? `@${userName}` : 'Уважаемый(ая)';
